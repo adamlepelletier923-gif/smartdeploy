@@ -1,0 +1,36 @@
+services:
+  api:
+    build:
+      context: ./app
+    environment:
+      APP_VERSION: local-compose
+      ERROR_RATE: "0"
+      EXTRA_LATENCY_MS: "0"
+    ports:
+      - "8080:8080"
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus-rules.yaml:/etc/prometheus/rules/smartdeploy.yaml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: smartdeploy
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana-dashboard.json:/var/lib/grafana/dashboards/smartdeploy.json:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus

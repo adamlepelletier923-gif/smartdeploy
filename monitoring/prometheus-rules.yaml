@@ -1,0 +1,25 @@
+groups:
+  - name: smartdeploy-release-health
+    rules:
+      - alert: SmartDeployHighErrorRate
+        expr: |
+          sum(rate(smartdeploy_http_requests_total{endpoint="/api/orders",status=~"5.."}[2m]))
+          /
+          sum(rate(smartdeploy_http_requests_total{endpoint="/api/orders"}[2m]))
+          > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: SmartDeploy API error rate is above 5 percent
+      - alert: SmartDeployHighP95Latency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(smartdeploy_http_request_duration_seconds_bucket{endpoint="/api/orders"}[2m])) by (le)
+          ) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: SmartDeploy API p95 latency is above 500ms
