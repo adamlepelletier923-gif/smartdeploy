@@ -1,18 +1,21 @@
 # SmartDeploy
 
+[![SmartDeploy CI](https://github.com/adamlepelletier923-gif/smartdeploy/actions/workflows/smartdeploy-ci.yml/badge.svg)](https://github.com/adamlepelletier923-gif/smartdeploy/actions/workflows/smartdeploy-ci.yml)
+
 SmartDeploy is a DevOps/SRE portfolio project that demonstrates a monitored deployment pipeline with automatic rollback.
 
-The idea is simple: deploy a containerized service, watch real production-style signals after the release, and roll back when the release degrades latency or error rate.
+The project does more than deploy an app: it deploys, observes production-style metrics, decides if the release is healthy, and produces a release report that explains the decision.
 
 ## What It Shows
 
-- Containerized application with health checks and Prometheus metrics
-- Kubernetes deployment with readiness/liveness probes
+- Containerized FastAPI application with health checks and Prometheus metrics
+- Kubernetes deployment with readiness/liveness probes and rolling updates
 - Prometheus alert rules for bad releases
-- Grafana dashboard starter
-- Release guardian script that checks post-deploy metrics
-- CI workflow that builds, tests, scans, and prepares deployment
-- Rollback command driven by observed metrics
+- Grafana dashboard starter for release health
+- Traffic generator to feed real demo metrics
+- Release guardian with consecutive-failure detection
+- Markdown release reports for healthy and degraded releases
+- GitHub Actions pipeline with tests, Docker build, Trivy scan, and GHCR push
 
 ## Architecture
 
@@ -27,7 +30,9 @@ flowchart LR
     Prom --> Guardian["Release Guardian"]
     Guardian -->|healthy| Keep["Keep release"]
     Guardian -->|degraded| Rollback["kubectl rollout undo"]
+    Guardian --> Report["Release report"]
     Prom --> Grafana["Grafana Dashboard"]
+    Load["Traffic generator"] --> App
 ```
 
 ## Repository Layout
@@ -36,18 +41,20 @@ flowchart LR
 app/                    FastAPI demo service
 k8s/                    Kubernetes manifests
 monitoring/             Prometheus rules and Grafana dashboard
-scripts/                Release guardian automation
+scripts/                Release guardian and traffic generator
+tests/                  API and automation tests
 .github/workflows/      CI pipeline
 ```
 
 ## Local Run
 
-```bash
-cd app
+PowerShell:
+
+```powershell
 python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8080
+.\.venv\Scripts\Activate.ps1
+pip install -r app\requirements.txt -r scripts\requirements.txt
+uvicorn app.main:app --reload --port 8080
 ```
 
 Open:
@@ -66,7 +73,7 @@ docker run --rm -p 8080:8080 smartdeploy-api:local
 ## Local Observability Stack
 
 ```bash
-docker compose up --build
+docker compose up -d --build
 ```
 
 Open:
@@ -79,6 +86,50 @@ Grafana credentials:
 
 - User: `admin`
 - Password: `smartdeploy`
+
+## Portfolio Demo
+
+Start the stack and generate healthy traffic:
+
+```powershell
+docker compose up -d --build
+python scripts/load_generator.py --duration-seconds 60 --rate-per-second 4
+```
+
+Ask the release guardian to evaluate the current release:
+
+```powershell
+python scripts/release_guardian.py `
+  --prometheus-url http://localhost:9090 `
+  --watch-seconds 60 `
+  --interval-seconds 10 `
+  --report-file reports/healthy-release.md `
+  --dry-run
+```
+
+Now simulate a bad release locally:
+
+```powershell
+$env:APP_VERSION="bad-local-release"
+$env:ERROR_RATE="0.35"
+$env:EXTRA_LATENCY_MS="800"
+docker compose up -d --build api
+python scripts/load_generator.py --duration-seconds 90 --rate-per-second 4
+```
+
+Run the guardian again:
+
+```powershell
+python scripts/release_guardian.py `
+  --prometheus-url http://localhost:9090 `
+  --watch-seconds 90 `
+  --interval-seconds 10 `
+  --consecutive-failures 2 `
+  --report-file reports/bad-release.md `
+  --dry-run
+```
+
+The local demo uses `--dry-run` because Docker Compose has no Kubernetes rollout history. In Kubernetes, remove `--dry-run` and the guardian will run `kubectl rollout undo`.
 
 ## Kubernetes Demo
 
@@ -96,7 +147,7 @@ Port-forward:
 kubectl port-forward -n smartdeploy svc/smartdeploy-api 8080:80
 ```
 
-## Simulate A Bad Release
+## Simulate A Bad Kubernetes Release
 
 The app supports fault injection through environment variables:
 
@@ -106,7 +157,7 @@ The app supports fault injection through environment variables:
 Example bad release:
 
 ```bash
-kubectl set env -n smartdeploy deployment/smartdeploy-api ERROR_RATE=0.35 EXTRA_LATENCY_MS=800
+kubectl set env -n smartdeploy deployment/smartdeploy-api ERROR_RATE=0.35 EXTRA_LATENCY_MS=800 APP_VERSION=bad-k8s-release
 kubectl rollout status -n smartdeploy deployment/smartdeploy-api
 ```
 
@@ -118,14 +169,26 @@ python scripts/release_guardian.py \
   --deployment smartdeploy-api \
   --prometheus-url http://localhost:9090 \
   --error-rate-threshold 0.05 \
-  --p95-latency-threshold-ms 500
+  --p95-latency-threshold-ms 500 \
+  --consecutive-failures 2 \
+  --report-file reports/k8s-release.md
 ```
 
-If the metrics exceed the thresholds, the script runs:
+If the metrics exceed the thresholds for consecutive samples, the script runs:
 
 ```bash
 kubectl rollout undo -n smartdeploy deployment/smartdeploy-api
 ```
+
+## CI Pipeline
+
+The GitHub Actions workflow:
+
+1. Installs application and script dependencies
+2. Runs the Python test suite
+3. Builds the Docker image
+4. Runs a Trivy image scan
+5. Pushes the image to GitHub Container Registry on `main`
 
 ## Next Enhancements
 

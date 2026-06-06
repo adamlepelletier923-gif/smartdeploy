@@ -3,9 +3,9 @@ services:
     build:
       context: ./app
     environment:
-      APP_VERSION: local-compose
-      ERROR_RATE: "0"
-      EXTRA_LATENCY_MS: "0"
+      APP_VERSION: ${APP_VERSION:-local-compose}
+      ERROR_RATE: ${ERROR_RATE:-0}
+      EXTRA_LATENCY_MS: ${EXTRA_LATENCY_MS:-0}
     ports:
       - "8080:8080"
 

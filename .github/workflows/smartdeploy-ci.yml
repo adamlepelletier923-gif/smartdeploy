@@ -28,6 +28,7 @@ jobs:
       - name: Install app dependencies
         run: |
           pip install -r app/requirements.txt
+          pip install -r scripts/requirements.txt
           pip install httpx pytest
 
       - name: Smoke test API
